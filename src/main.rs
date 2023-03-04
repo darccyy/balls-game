@@ -1,6 +1,3 @@
-// use std::borrow::BorrowMut;
-// use std::cell::RefCell;
-
 use std::f32::consts::PI;
 
 use ggez::conf::WindowMode;
@@ -10,10 +7,14 @@ use ggez::input::keyboard::KeyCode;
 use ggez::mint::Point2;
 use ggez::{Context, ContextBuilder, GameResult};
 
-fn main() -> GameResult {
-    let (mut ctx, event_loop) = ContextBuilder::new("my_game", "me").build()?;
+use balls_game::{clamp, slow, AngleVec};
 
-    ctx.gfx.set_window_title("My Game");
+fn main() -> GameResult {
+    // Create game context
+    let (mut ctx, event_loop) = ContextBuilder::new("balls_game", "darcy").build()?;
+
+    // Change window properties
+    ctx.gfx.set_window_title("Balls Game");
     ctx.gfx.set_mode(WindowMode {
         width: 1600.0,
         height: 900.0,
@@ -21,52 +22,32 @@ fn main() -> GameResult {
         ..Default::default()
     })?;
 
-    let my_game = MyGame::new(&mut ctx);
+    // Create game state
+    let game = BallsGame::new(&mut ctx);
 
-    event::run(ctx, event_loop, my_game);
+    // Run game loop
+    event::run(ctx, event_loop, game);
 }
 
-struct MyGame {
+struct BallsGame {
+    /// All balls in game
     balls: Vec<Ball>,
+    /// Active ball, which is selected
+    ///
+    /// This should be a reference for safety, but that is difficult
     active_ball: Option<usize>,
-}
-
-/// Vector of direction and magnitude
-#[derive(Debug, Clone, Copy)]
-struct AngleVec {
-    /// Angle from +x axis
-    pub direction: f32,
-    /// Magnitude of vector
-    pub magnitude: f32,
-}
-
-impl AngleVec {
-    /// Convert xy values into angle vector
-    pub fn from_xy(x: f32, y: f32) -> Self {
-        let magnitude = (x * x + y * y).sqrt();
-        let direction = y.atan2(x);
-
-        Self {
-            magnitude,
-            direction,
-        }
-    }
-
-    /// Convert angle vector into xy values
-    pub fn to_xy(self) -> (f32, f32) {
-        let x = self.magnitude * self.direction.cos();
-        let y = self.magnitude * self.direction.sin();
-
-        (x, y)
-    }
 }
 
 /// Ball with position and velocity
 #[derive(Debug, Clone, Copy)]
 struct Ball {
+    /// Position of ball
     point: Point2<f32>,
+    /// Velocity, as an angle vector
     velocity: AngleVec,
+    /// Radius of ball
     radius: f32,
+    /// Color of ball
     color: Color,
 }
 
@@ -94,9 +75,9 @@ impl Ball {
     }
 }
 
-impl MyGame {
-    pub fn new(_ctx: &mut Context) -> MyGame {
-        MyGame {
+impl BallsGame {
+    pub fn new(_ctx: &mut Context) -> BallsGame {
+        BallsGame {
             balls: vec![
                 Ball::new(300.0, 300.0, 30.0, Color::RED),
                 Ball::new(500.0, 500.0, 50.0, Color::GREEN),
@@ -106,16 +87,19 @@ impl MyGame {
     }
 }
 
-impl EventHandler for MyGame {
+impl EventHandler for BallsGame {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
+        // Reset game with 'R' key
         if ctx.keyboard.is_key_just_pressed(KeyCode::R) {
             *self = Self::new(ctx);
             return Ok(());
         }
 
+        // Get mouse and cursor
         let mouse = &ctx.mouse;
         let cursor = mouse.position();
 
+        // Move balls with mouse
         if mouse.button_just_pressed(MouseButton::Left) {
             // Change active ball
             // Default to None
@@ -146,6 +130,7 @@ impl EventHandler for MyGame {
             self.active_ball = None;
         }
 
+        // Loop balls
         for ball in &mut self.balls {
             // Apply min and max velocity
             clamp(
@@ -238,25 +223,5 @@ impl EventHandler for MyGame {
         }
 
         canvas.finish(ctx)
-    }
-}
-
-/// Keep value between a min and max
-fn clamp(value: &mut f32, min: f32, max: f32) {
-    if *value > max {
-        *value = max;
-    } else if *value < min {
-        *value = min;
-    }
-}
-
-/// Apply deceleration to a value
-///
-/// Set value to zero if deceleration amount is more than value
-fn slow(value: &mut f32, deceleration: f32) {
-    if value.abs() < deceleration {
-        *value = 0.0;
-    } else {
-        *value -= deceleration * value.signum();
     }
 }
