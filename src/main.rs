@@ -4,10 +4,9 @@ use ggez::conf::WindowMode;
 use ggez::event::{self, EventHandler, MouseButton};
 use ggez::graphics::{self, Color, DrawMode};
 use ggez::input::keyboard::KeyCode;
-use ggez::mint::Point2;
 use ggez::{Context, ContextBuilder, GameResult};
 
-use balls_game::{clamp, slow, AngleVec};
+use balls_game::{clamp, slow, AngleVec, Ball};
 
 fn main() -> GameResult {
     // Create game context
@@ -36,43 +35,6 @@ struct BallsGame {
     ///
     /// This should be a reference for safety, but that is difficult
     active_ball: Option<usize>,
-}
-
-/// Ball with position and velocity
-#[derive(Debug, Clone, Copy)]
-struct Ball {
-    /// Position of ball
-    point: Point2<f32>,
-    /// Velocity, as an angle vector
-    velocity: AngleVec,
-    /// Radius of ball
-    radius: f32,
-    /// Color of ball
-    color: Color,
-}
-
-impl Ball {
-    /// Acceleration magnitude
-    const ACCELERATION: f32 = 0.3;
-    /// Maximum absolute velocity
-    const MAX_VELOCITY: f32 = 120.0;
-    /// Deceleration amount for friction
-    const DECELERATION: f32 = 2.0;
-    /// Deceleration amount for bounce force
-    const BOUNCE_DECELERATION: f32 = 2.0;
-
-    /// New ball with x, y, radius, color, and zero velocity
-    pub fn new(x: f32, y: f32, radius: f32, color: Color) -> Self {
-        Self {
-            point: Point2 { x, y },
-            velocity: AngleVec {
-                direction: 0.0,
-                magnitude: 0.0,
-            },
-            radius,
-            color,
-        }
-    }
 }
 
 impl BallsGame {
