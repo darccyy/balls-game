@@ -1,10 +1,13 @@
 // use std::borrow::BorrowMut;
 // use std::cell::RefCell;
 
+use std::f32::consts::PI;
+
 use ggez::conf::WindowMode;
 use ggez::event::{self, EventHandler, MouseButton};
 use ggez::graphics::{self, Color, DrawMode};
-use ggez::mint::{Point2, Vector2};
+use ggez::input::keyboard::KeyCode;
+use ggez::mint::Point2;
 use ggez::{Context, ContextBuilder, GameResult};
 
 fn main() -> GameResult {
@@ -28,19 +31,63 @@ struct MyGame {
     active_ball: Option<usize>,
 }
 
+/// Vector of direction and magnitude
+#[derive(Debug, Clone, Copy)]
+struct AngleVec {
+    /// Angle from +x axis
+    pub direction: f32,
+    /// Magnitude of vector
+    pub magnitude: f32,
+}
+
+impl AngleVec {
+    /// Convert xy values into angle vector
+    pub fn from_xy(x: f32, y: f32) -> Self {
+        let magnitude = (x * x + y * y).sqrt();
+        let direction = y.atan2(x);
+
+        Self {
+            magnitude,
+            direction,
+        }
+    }
+
+    /// Convert angle vector into xy values
+    pub fn to_xy(self) -> (f32, f32) {
+        let x = self.magnitude * self.direction.cos();
+        let y = self.magnitude * self.direction.sin();
+
+        (x, y)
+    }
+}
+
+/// Ball with position and velocity
 #[derive(Debug, Clone, Copy)]
 struct Ball {
     point: Point2<f32>,
-    velocity: Vector2<f32>,
+    velocity: AngleVec,
     radius: f32,
     color: Color,
 }
 
 impl Ball {
+    /// Acceleration magnitude
+    const ACCELERATION: f32 = 0.3;
+    /// Maximum absolute velocity
+    const MAX_VELOCITY: f32 = 120.0;
+    /// Deceleration amount for friction
+    const DECELERATION: f32 = 2.0;
+    /// Deceleration amount for bounce force
+    const BOUNCE_DECELERATION: f32 = 2.0;
+
+    /// New ball with x, y, radius, color, and zero velocity
     pub fn new(x: f32, y: f32, radius: f32, color: Color) -> Self {
         Self {
             point: Point2 { x, y },
-            velocity: Vector2 { x: 0.0, y: 0.0 },
+            velocity: AngleVec {
+                direction: 0.0,
+                magnitude: 0.0,
+            },
             radius,
             color,
         }
@@ -61,65 +108,89 @@ impl MyGame {
 
 impl EventHandler for MyGame {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
+        if ctx.keyboard.is_key_just_pressed(KeyCode::R) {
+            *self = Self::new(ctx);
+            return Ok(());
+        }
+
         let mouse = &ctx.mouse;
         let cursor = mouse.position();
 
         if mouse.button_just_pressed(MouseButton::Left) {
+            // Change active ball
+            // Default to None
             self.active_ball = None;
 
             for (i, ball) in self.balls.iter().enumerate() {
+                // Mouse collides with ball
                 if (ball.point.x - cursor.x).abs() < ball.radius
                     && (ball.point.y - cursor.y).abs() < ball.radius
                 {
+                    // Use this ball, and break loop
                     self.active_ball = Some(i);
                     break;
                 }
             }
         } else if mouse.button_just_released(MouseButton::Left) {
+            // Apply velocity to active ball, if exists
             if let Some(active) = self.active_ball {
                 let ball = &mut self.balls[active];
 
-                let vx = ball.point.x - cursor.x;
-                let vy = ball.point.y - cursor.y;
-
-                ball.velocity.x = vx;
-                ball.velocity.y = vy;
+                // Get velocity vector
+                ball.velocity = AngleVec::from_xy(ball.point.x - cursor.x, ball.point.y - cursor.y);
+                // Apply acceleration speed
+                ball.velocity.magnitude *= Ball::ACCELERATION;
             }
-        } else if !mouse.button_pressed(MouseButton::Left) {
+
+            // Reset active ball
             self.active_ball = None;
         }
 
         for ball in &mut self.balls {
-            const SPEED: f32 = 0.5;
-            const DECELERATION: f32 = 5.0;
-            const BOUNCE_DECELERATION: f32 = 50.0;
-            const MAX_VELOCITY: f32 = 200.0;
+            // Apply min and max velocity
+            clamp(
+                &mut ball.velocity.magnitude,
+                -Ball::MAX_VELOCITY,
+                Ball::MAX_VELOCITY,
+            );
 
-            clamp(&mut ball.velocity.x, -MAX_VELOCITY, MAX_VELOCITY);
-            clamp(&mut ball.velocity.y, -MAX_VELOCITY, MAX_VELOCITY);
+            // Apply velocity to ball position
+            let (vx, vy) = ball.velocity.to_xy();
+            ball.point.x += vx;
+            ball.point.y += vy;
 
-            ball.point.x += ball.velocity.x * SPEED;
-            ball.point.y += ball.velocity.y * SPEED;
+            // Decrease velocity slowly for friction
+            slow(&mut ball.velocity.magnitude, Ball::DECELERATION);
 
-            slow(&mut ball.velocity.x, DECELERATION);
-            slow(&mut ball.velocity.y, DECELERATION);
-
+            // Size of canvas
             let (width, height) = ctx.gfx.drawable_size();
 
-            bounce(
-                &mut ball.point.x,
-                &mut ball.velocity.x,
-                ball.radius,
-                width - ball.radius,
-                BOUNCE_DECELERATION,
-            );
-            bounce(
-                &mut ball.point.y,
-                &mut ball.velocity.y,
-                ball.radius,
-                height - ball.radius,
-                BOUNCE_DECELERATION,
-            );
+            // If ball is out of bounds, flip velocity direction and decrease velocity for bounce force
+            if ball.point.x < ball.radius
+                || ball.point.x > width - ball.radius
+                || ball.point.y < ball.radius
+                || ball.point.y > height - ball.radius
+            {
+                ball.velocity.direction *= -1.0;
+                slow(&mut ball.velocity.magnitude, Ball::BOUNCE_DECELERATION);
+            }
+
+            // Ball x position is out of bounds
+            // Change direction by a half rotation
+            if ball.point.x < ball.radius {
+                ball.velocity.direction += PI;
+                ball.point.x = ball.radius;
+            } else if ball.point.x > width - ball.radius {
+                ball.velocity.direction += PI;
+                ball.point.x = width - ball.radius;
+            }
+
+            // Ball y position is out of bounds
+            if ball.point.y < ball.radius {
+                ball.point.y = ball.radius;
+            } else if ball.point.y > height - ball.radius {
+                ball.point.y = height - ball.radius;
+            }
         }
 
         Ok(())
@@ -128,6 +199,7 @@ impl EventHandler for MyGame {
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         let mut canvas = graphics::Canvas::from_frame(ctx, graphics::Color::BLACK);
 
+        // Draw balls
         for ball in &self.balls {
             let circle = graphics::Mesh::new_circle(
                 ctx,
@@ -137,13 +209,14 @@ impl EventHandler for MyGame {
                 0.1,
                 ball.color,
             )?;
-
             canvas.draw(&circle, graphics::DrawParam::default());
         }
 
+        // Draw active ball, if exists
         if let Some(active) = self.active_ball {
             let ball = self.balls[active];
 
+            // Stroke circle
             let circle = graphics::Mesh::new_circle(
                 ctx,
                 DrawMode::stroke(10.0),
@@ -152,16 +225,15 @@ impl EventHandler for MyGame {
                 0.1,
                 Color::WHITE,
             )?;
-
             canvas.draw(&circle, graphics::DrawParam::default());
 
+            // Line to cursor
             let line = graphics::Mesh::new_line(
                 ctx,
                 &[ball.point, ctx.mouse.position()],
                 5.0,
                 Color::WHITE,
             )?;
-
             canvas.draw(&line, graphics::DrawParam::default());
         }
 
@@ -169,6 +241,7 @@ impl EventHandler for MyGame {
     }
 }
 
+/// Keep value between a min and max
 fn clamp(value: &mut f32, min: f32, max: f32) {
     if *value > max {
         *value = max;
@@ -177,23 +250,13 @@ fn clamp(value: &mut f32, min: f32, max: f32) {
     }
 }
 
-fn slow(vel: &mut f32, deceleration: f32) {
-    if vel.abs() < deceleration {
-        *vel = 0.0;
+/// Apply deceleration to a value
+///
+/// Set value to zero if deceleration amount is more than value
+fn slow(value: &mut f32, deceleration: f32) {
+    if value.abs() < deceleration {
+        *value = 0.0;
     } else {
-        *vel -= deceleration * vel.signum();
-    }
-}
-
-fn bounce(pos: &mut f32, vel: &mut f32, min: f32, max: f32, deceleration: f32) {
-    if *pos <= min {
-        *pos = min;
-        slow(vel, deceleration);
-        *vel *= -1.0;
-    }
-    if *pos >= max {
-        *pos = max;
-        slow(vel, deceleration);
-        *vel *= -1.0;
+        *value -= deceleration * value.signum();
     }
 }
