@@ -1,4 +1,4 @@
-use ggez::{mint::Point2, graphics::Color};
+use ggez::{graphics::Color, mint::Point2};
 
 /// Vector of direction and magnitude
 #[derive(Debug, Clone, Copy)]
@@ -61,6 +61,8 @@ pub struct Ball {
     pub radius: f32,
     /// Color of ball
     pub color: Color,
+    /// Whether ball is currently colliding
+    pub is_colliding: bool,
 }
 
 impl Ball {
@@ -69,9 +71,11 @@ impl Ball {
     /// Maximum absolute velocity
     pub const MAX_VELOCITY: f32 = 120.0;
     /// Deceleration amount for friction
-    pub const DECELERATION: f32 = 2.0;
+    pub const DECELERATION: f32 = 1.5;
     /// Deceleration amount for bounce force
     pub const BOUNCE_DECELERATION: f32 = 2.0;
+    /// Relative magnitude of velocity in slow mode
+    pub const SLOW_MAGNITUDE: f32 = 0.2;
 
     /// New ball with x, y, radius, color, and zero velocity
     pub fn new(x: f32, y: f32, radius: f32, color: Color) -> Self {
@@ -83,6 +87,19 @@ impl Ball {
             },
             radius,
             color,
+            is_colliding: false,
         }
+    }
+}
+
+pub trait Collides<T> {
+    /// Check for collision with another object
+    fn collides(&self, other: &T) -> bool;
+}
+
+impl Collides<Self> for Ball {
+    fn collides(&self, other: &Self) -> bool {
+        (self.point.x - other.point.x).powi(2) + (self.point.y - other.point.y).powi(2)
+            <= (self.radius + other.radius).powi(2)
     }
 }
